@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: 'Release version to deploy (e.g. 5, 5_fix1)'
+        description: 'Release version to deploy (e.g. 1, 1_fix)'
         required: true
         type: string
 
@@ -16,28 +16,35 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Check image exists in Yandex Container Registry
+      - name: Install Yandex.Cloud CLI
         run: |
-          IMAGE="cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest"
+          curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/bin" >> $GITHUB_PATH
 
+      - name: Check image exists in Yandex Container Registry
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+          CLOUD_ID: <ваш_cloud_id>
+          FOLDER_ID: <ваш_folder_id>
+          REGISTRY_NAME: <ваше_имя_реестра>
+          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+        run: |
+          echo "$YC_SA_KEY_JSON" > key.json
+          yc config set service-account-key key.json
+          yc config set cloud-id "$CLOUD_ID"
+          yc config set folder-id "$FOLDER_ID"
+
+          IMAGE="cr.yandex/$REGISTRY_NAME/app:${RELEASE_VERSION}_latest"
           echo "Checking image: $IMAGE"
 
-          # Авторизация в YC CLI
-          echo '${{ secrets.YC_SA_KEY_JSON }}' > key.json
-          yc config set service-account-key key.json
-          yc config set cloud-id <ваш_cloud_id>
-          yc config set folder-id <ваш_folder_id>
-
-          # Проверить образ
-          IMAGE_EXISTS=$(yc container image list --registry-name <ваше_имя_реестра> --format json | jq -r \
-            --arg tag "${{ github.event.inputs.release_version }}_latest" \
+          IMAGE_EXISTS=$(yc container image list --registry-name "$REGISTRY_NAME" --format json | jq -r \
+            --arg tag "${RELEASE_VERSION}_latest" \
             '.[] | select(.tags[]? == $tag) | .name')
 
           if [ -z "$IMAGE_EXISTS" ]; then
-            echo "Image with tag ${{ github.event.inputs.release_version }}_latest not found in Yandex Container Registry!"
+            echo "Image with tag ${RELEASE_VERSION}_latest not found in Yandex Container Registry!"
             exit 1
           fi
-
 
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3
@@ -48,12 +55,7 @@ jobs:
           script: |
             docker pull cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
 
-            # Останавливаем старый контейнер (если есть)
             docker stop shri-infra || true
             docker rm shri-infra || true
 
-            # Запускаем новый контейнер
-            docker run -d \
-              --name shri-infra \
-              -p 3000:3000 \
-              cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
+            docker run -d --name shri-infra -p 3000:3000 cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
