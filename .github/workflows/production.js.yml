@@ -24,9 +24,9 @@ jobs:
       - name: Check image exists in Yandex Container Registry
         env:
           YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
-          CLOUD_ID: <ваш_cloud_id>
-          FOLDER_ID: <ваш_folder_id>
-          REGISTRY_NAME: <ваше_имя_реестра>
+          CLOUD_ID: b1gr908prd2uo9dahreb
+          FOLDER_ID: b1gre28ftdr7otqsp4c7
+          REGISTRY_NAME: configure-docker
           RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
           echo "$YC_SA_KEY_JSON" > key.json
