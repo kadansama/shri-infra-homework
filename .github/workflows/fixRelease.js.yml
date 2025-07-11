@@ -1,4 +1,4 @@
-name: Hotfix
+name: Fix Release
 
 on:
   workflow_dispatch:
@@ -34,11 +34,11 @@ jobs:
     needs: checks
     runs-on: ubuntu-latest
     env:
-      REGISTRY_ID: crph4codaco7ibpqes0d
-      IMAGE_NAME: "app"
+      REGISTRY_ID: crph4codaco7ibpqes0d  # Взято из релизного workflow
+      IMAGE_NAME: "app"                  # Взято из релизного workflow
       RELEASE_VERSION: ${{ github.event.inputs.release_version }}
       FIX_VERSION: ${{ github.run_number }}
-      YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+      YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}  # Должен быть в секретах
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -56,8 +56,8 @@ jobs:
         run: |
           echo "${YC_SERVICE_ACCOUNT_KEY_JSON}" > key.json
           yc config set service-account-key key.json
-          yc config set cloud-id b1gr908prd2uo9dahreb
-          yc config set folder-id b1gre28ftdr7otqsp4c7
+          yc config set cloud-id b1gr908prd2uo9dahreb    # Взято из релизного workflow
+          yc config set folder-id b1gre28ftdr7otqsp4c7   # Взято из релизного workflow
           yc container registry configure-docker
 
       - name: Build docker image
@@ -111,11 +111,11 @@ jobs:
                          `### Commits:\n${commits}\n\n` +
                          `**Docker Image:** \`${imageLink}\``;
 
-            // Find release issue
+            // Find release issue (ищем issue с номером версии)
             const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              state: 'open'
+              state: 'all'
             });
 
             const releaseIssue = issues.data.find(issue => 
