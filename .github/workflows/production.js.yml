@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      REGISTRY_NAME: shri-infra-registry
+      REGISTRY_NAME: crph4codaco7ibpqes0d
       RELEASE_VERSION: ${{ inputs.release_version }}
       CLOUD_ID: b1gr908prd2uo9dahreb
       FOLDER_ID: b1gre28ftdr7otqsp4c7
