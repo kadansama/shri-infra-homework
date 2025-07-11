@@ -68,17 +68,25 @@ jobs:
           key: ${{ secrets.PROD_SERVER_SSH_PRIVATE_KEY }}
           envs: REGISTRY_NAME,RELEASE_VERSION
           script: |
-            IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
+            set -e
 
-            yc config set service-account-key <(echo '${{ secrets.YC_SA_KEY_JSON }}')
+            echo '${{ secrets.YC_SA_KEY_JSON }}' > key.json
+
+            curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+            export PATH="$HOME/yandex-cloud/bin:$PATH"
+
+            yc config set service-account-key key.json
+            yc config set cloud-id b1gr908prd2uo9dahreb
+            yc config set folder-id b1gre28ftdr7otqsp4c7
             yc container registry configure-docker
 
-            docker pull "$IMAGE"
+            IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
+            echo "Deploying image: $IMAGE"
 
-            docker stop shri-infra || true
-            docker rm shri-infra || true
-
-            docker run -d --name shri-infra -p 3000:3000 "$IMAGE"
+            sudo docker pull "$IMAGE"
+            sudo docker stop shri-infra || true
+            sudo docker rm shri-infra || true
+            sudo docker run -d --name shri-infra -p 3000:3000 "$IMAGE"
 
       - name: Add comment to release issue
         uses: peter-evans/create-or-update-comment@v4
