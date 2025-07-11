@@ -44,7 +44,7 @@ jobs:
       - name: Login to Yandex Container Registry
         run: |
           # ЗАМЕНИТЕ содержимое секрета YC_SA_KEY на ключ сервисного аккаунта
-          echo ${{ secrets.YC_SA_KEY }} | docker login \
+          echo ${{ secrets.YC_SA_KEY_JSON }} | docker login \
             --username json_key \
             --password-stdin \
             cr.yandex
