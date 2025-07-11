@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run ${{ matrix.task }}
+        run: npm run ${{ matrix.task }}
+
+  release:
+    needs: checks
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY_ID: crph4codaco7ibpqes0d 
+      IMAGE_NAME: "app"
+      VERSION: ${{ github.run_number }}
+      YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Docker to use Yandex Cloud registry
+        run: |
+          echo "${{ env.YC_SERVICE_ACCOUNT_KEY_JSON }}" > key.json
+          yc config set service-account-key key.json
+          yc config set cloud-id b1gr908prd2uo9dahreb
+          yc config set folder-id b1gre28ftdr7otqsp4c7
+          yc container registry configure-docker
+
+      - name: Create release branch
+        run: |
+          git checkout -b releases/${{ env.VERSION }}
+          git push origin releases/${{ env.VERSION }}
+
+      - name: Build docker image
+        run: |
+          docker build -t cr.yandex/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
+                       -t cr.yandex/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}_latest .
+
+      - name: Push docker images
+        run: |
+          docker push cr.yandex/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+          docker push cr.yandex/${{ env.REGISTRY_ID }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}_latest
+
+      - name: Create git tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag ${VERSION}
+          git push origin ${VERSION}
+
+      - name: Get previous tag
+        id: previous_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ || echo "")
+          echo "prev_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Get commits since last tag
+        id: changelog
+        run: |
+          if [ -z "${{ steps.previous_tag.outputs.prev_tag }}" ]; then
+            COMMITS=$(git log --pretty=format:"* %s" HEAD)
+          else
+            COMMITS=$(git log --pretty=format:"* %s" ${{ steps.previous_tag.outputs.prev_tag }}..HEAD)
+          fi
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update CHANGELOG.md
+        run: |
+          echo "## Version $VERSION - $(date +'%Y-%m-%d')" > NEWCHANGELOG.md
+          echo "" >> NEWCHANGELOG.md
+          echo "${{ steps.changelog.outputs.commits }}" >> NEWCHANGELOG.md
+          echo "" >> NEWCHANGELOG.md
+          cat CHANGELOG.md >> NEWCHANGELOG.md || true
+          mv NEWCHANGELOG.md CHANGELOG.md
+
+      - name: Commit CHANGELOG.md
+        run: |
+          git add CHANGELOG.md
+          git commit -m "docs: update changelog for release $VERSION" || echo "No changes"
+          git push origin releases/${{ env.VERSION }}
+
+      - name: Create GitHub issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().split("T")[0];
+            const actor = context.actor;
+            const version = "${{ env.VERSION }}";
+            const commits = `${{ steps.changelog.outputs.commits }}`;
+            const imageLink = `cr.yandex/${process.env.REGISTRY_ID}/${process.env.IMAGE_NAME}:${version}`;
+            const body = `## Release ${version}\n\n` +
+                         `- **Date:** ${date}\n` +
+                         `- **Author:** ${actor}\n\n` +
+                         `### Commits:\n${commits}\n\n` +
+                         `**Docker Image:** \`${imageLink}\``;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release ${version}`,
+              body: body
+            });
