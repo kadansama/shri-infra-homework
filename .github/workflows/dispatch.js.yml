@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install deps
+      - name: Install dependencies
         run: npm ci
 
       - name: Run ${{ matrix.task }}
@@ -28,7 +28,7 @@ jobs:
     needs: checks
     runs-on: ubuntu-latest
     env:
-      REGISTRY_ID: crph4codaco7ibpqes0d 
+      REGISTRY_ID: crph4codaco7ibpqes0d
       IMAGE_NAME: "app"
       VERSION: ${{ github.run_number }}
       YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
@@ -36,14 +36,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure Docker to use Yandex Cloud registry
+      - name: Install Yandex Cloud CLI
         run: |
-          echo "${{ env.YC_SERVICE_ACCOUNT_KEY_JSON }}" > key.json
+          curl -s https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Configure Docker to use Yandex Cloud registry
+        env:
+          YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          echo "${YC_SERVICE_ACCOUNT_KEY_JSON}" > key.json
           yc config set service-account-key key.json
           yc config set cloud-id b1gr908prd2uo9dahreb
           yc config set folder-id b1gre28ftdr7otqsp4c7
           yc container registry configure-docker
 
+      # Остальные шаги остаются без изменений
       - name: Create release branch
         run: |
           git checkout -b releases/${{ env.VERSION }}
@@ -63,8 +71,8 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git tag ${VERSION}
-          git push origin ${VERSION}
+          git tag ${{ env.VERSION }}
+          git push origin ${{ env.VERSION }}
 
       - name: Get previous tag
         id: previous_tag
@@ -86,7 +94,7 @@ jobs:
 
       - name: Update CHANGELOG.md
         run: |
-          echo "## Version $VERSION - $(date +'%Y-%m-%d')" > NEWCHANGELOG.md
+          echo "## Version ${{ env.VERSION }} - $(date +'%Y-%m-%d')" > NEWCHANGELOG.md
           echo "" >> NEWCHANGELOG.md
           echo "${{ steps.changelog.outputs.commits }}" >> NEWCHANGELOG.md
           echo "" >> NEWCHANGELOG.md
@@ -96,7 +104,7 @@ jobs:
       - name: Commit CHANGELOG.md
         run: |
           git add CHANGELOG.md
-          git commit -m "docs: update changelog for release $VERSION" || echo "No changes"
+          git commit -m "docs: update changelog for release ${{ env.VERSION }}" || echo "No changes to commit"
           git push origin releases/${{ env.VERSION }}
 
       - name: Create GitHub issue
