@@ -7,16 +7,21 @@ on:
         description: 'Release version to deploy (e.g. 1, 1_fix)'
         required: true
         type: string
+      issue_number:
+        description: 'Issue number'
+        required: true
+        type: number
 
 jobs:
   deploy:
+    name: Deploy Release ${{ inputs.release_version }} to Production
     runs-on: ubuntu-latest
 
     env:
+      REGISTRY_NAME: shri-infra-registry
+      RELEASE_VERSION: ${{ inputs.release_version }}
       CLOUD_ID: b1gr908prd2uo9dahreb
       FOLDER_ID: b1gre28ftdr7otqsp4c7
-      REGISTRY_NAME: shri-infra-registry
-      RELEASE_VERSION: ${{ github.event.inputs.release_version }}
 
     steps:
       - name: Checkout repo
@@ -25,36 +30,31 @@ jobs:
       - name: Install Yandex.Cloud CLI
         run: |
           curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          echo "$HOME/bin" >> $GITHUB_PATH
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
 
-      - name: Verify yc CLI is installed
-        run: |
-          which yc
-          yc --version
-
-      - name: Authenticate with Yandex Cloud
+      - name: Authenticate with Yandex.Cloud
         env:
           YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
           echo "$YC_SA_KEY_JSON" > key.json
           yc config set service-account-key key.json
-          yc config set cloud-id "$CLOUD_ID"
-          yc config set folder-id "$FOLDER_ID"
+          yc config set cloud-id $CLOUD_ID
+          yc config set folder-id $FOLDER_ID
 
-      - name: Check image exists in Yandex Container Registry
+      - name: Log in to Yandex Container Registry
         run: |
-          IMAGE="cr.yandex/$REGISTRY_NAME/app:${RELEASE_VERSION}_latest"
-          echo "Checking image: $IMAGE"
+          yc container registry configure-docker
 
-          IMAGE_EXISTS=$(yc container image list --registry-name "$REGISTRY_NAME" --format json | jq -r \
-            --arg tag "${RELEASE_VERSION}_latest" \
-            '.[] | select(.tags[]? == $tag) | .name')
+      - name: Check image exists
+        run: |
+          IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
+          echo "Checking if image exists: $IMAGE"
 
-          if [ -z "$IMAGE_EXISTS" ]; then
-            echo "Image with tag ${RELEASE_VERSION}_latest not found in Yandex Container Registry!"
-            exit 1
+          if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "✅ Image exists: $IMAGE"
           else
-            echo "Image found: $IMAGE_EXISTS"
+            echo "❌ Image not found: $IMAGE"
+            exit 1
           fi
 
       - name: Deploy to production server
@@ -66,8 +66,12 @@ jobs:
           host: ${{ secrets.PROD_SERVER_IP }}
           username: ${{ secrets.PROD_SERVER_USER }}
           key: ${{ secrets.PROD_SERVER_SSH_PRIVATE_KEY }}
+          envs: REGISTRY_NAME,RELEASE_VERSION
           script: |
             IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
+
+            yc config set service-account-key <(echo '${{ secrets.YC_SA_KEY_JSON }}')
+            yc container registry configure-docker
 
             docker pull "$IMAGE"
 
@@ -75,3 +79,14 @@ jobs:
             docker rm shri-infra || true
 
             docker run -d --name shri-infra -p 3000:3000 "$IMAGE"
+
+      - name: Add comment to release issue
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ inputs.issue_number }}
+          body: |
+            ✅ **Release deployed to production**
+
+            - Image: cr.yandex/${{ env.REGISTRY_NAME }}/app:${{ env.RELEASE_VERSION }}_latest
+            - Host: `${{ secrets.PROD_SERVER_IP }}`
+            - Deployed by: @${{ github.actor }}
