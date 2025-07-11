@@ -1,0 +1,59 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version to deploy (e.g. 5, 5_fix1)'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Check image exists in Yandex Container Registry
+        run: |
+          IMAGE="cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest"
+
+          echo "Checking image: $IMAGE"
+
+          # Авторизация в YC CLI
+          echo '${{ secrets.YC_SA_KEY_JSON }}' > key.json
+          yc config set service-account-key key.json
+          yc config set cloud-id <ваш_cloud_id>
+          yc config set folder-id <ваш_folder_id>
+
+          # Проверить образ
+          IMAGE_EXISTS=$(yc container image list --registry-name <ваше_имя_реестра> --format json | jq -r \
+            --arg tag "${{ github.event.inputs.release_version }}_latest" \
+            '.[] | select(.tags[]? == $tag) | .name')
+
+          if [ -z "$IMAGE_EXISTS" ]; then
+            echo "Image with tag ${{ github.event.inputs.release_version }}_latest not found in Yandex Container Registry!"
+            exit 1
+          fi
+
+
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_SERVER_IP }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_PRIVATE_KEY }}
+          script: |
+            docker pull cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
+
+            # Останавливаем старый контейнер (если есть)
+            docker stop shri-infra || true
+            docker rm shri-infra || true
+
+            # Запускаем новый контейнер
+            docker run -d \
+              --name shri-infra \
+              -p 3000:3000 \
+              cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
