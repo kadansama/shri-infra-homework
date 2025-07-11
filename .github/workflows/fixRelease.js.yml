@@ -22,10 +22,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          # Работает с существующей релизной веткой
           ref: releases/${{ github.event.inputs.release_version }}
 
-      # Далее идут стандартные шаги установки и проверок
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
@@ -40,16 +38,23 @@ jobs:
       - name: Run linter
         run: npm run lint
 
-      # Аутентификация в Yandex Container Registry
-      - name: Login to Yandex Container Registry
+      # Установка Yandex Cloud CLI и настройка доступа к Registry
+      - name: Install Yandex Cloud CLI
         run: |
-          # ЗАМЕНИТЕ содержимое секрета YC_SA_KEY на ключ сервисного аккаунта
-          echo ${{ secrets.YC_SA_KEY_JSON }} | docker login \
-            --username json_key \
-            --password-stdin \
-            cr.yandex
+          curl -s https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
 
-      # Сборка и публикация образа
+      - name: Configure Docker to use Yandex Cloud registry
+        env:
+          YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          echo "${YC_SERVICE_ACCOUNT_KEY_JSON}" > key.json
+          yc config set service-account-key key.json
+          yc config set cloud-id b1gr908prd2uo9dahreb
+          yc config set folder-id b1gre28ftdr7otqsp4c7
+          yc container registry configure-docker
+          rm -f key.json
+
       - name: Build and push Docker image
         run: |
           docker build -t cr.yandex/${{ env.REGISTRY_ID }}/app:${{ github.event.inputs.release_version }}_fix${{ github.run_number }} .
@@ -57,7 +62,6 @@ jobs:
           docker push cr.yandex/${{ env.REGISTRY_ID }}/app:${{ github.event.inputs.release_version }}_fix${{ github.run_number }}
           docker push cr.yandex/${{ env.REGISTRY_ID }}/app:${{ github.event.inputs.release_version }}_latest
 
-      # Получение истории коммитов для комментария
       - name: Get commit history
         id: commit-history
         run: |
@@ -71,13 +75,11 @@ jobs:
           echo "$COMMITS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # Создание тега для фикса
       - name: Create fix tag
         run: |
           git tag ${{ github.event.inputs.release_version }}.fix${{ github.run_number }}
           git push origin ${{ github.event.inputs.release_version }}.fix${{ github.run_number }}
 
-      # Добавление комментария в issue релиза
       - name: Add comment to release issue
         uses: actions/github-script@v6
         with:
