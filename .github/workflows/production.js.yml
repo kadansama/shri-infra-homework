@@ -12,6 +12,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      CLOUD_ID: b1gr908prd2uo9dahreb
+      FOLDER_ID: b1gre28ftdr7otqsp4c7
+      REGISTRY_NAME: shri-infra-registry
+      RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -21,41 +27,47 @@ jobs:
           curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Check image exists in Yandex Container Registry
+      - name: Verify yc CLI installation
+        run: |
+          ls -l $HOME/bin/yc
+          which yc
+          yc --version
+
+      - name: Authenticate yc CLI
         env:
           YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
-          CLOUD_ID: b1gr908prd2uo9dahreb
-          FOLDER_ID: b1gre28ftdr7otqsp4c7
-          REGISTRY_NAME: shri-infra-registry
-          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
           echo "$YC_SA_KEY_JSON" > key.json
           yc config set service-account-key key.json
           yc config set cloud-id "$CLOUD_ID"
           yc config set folder-id "$FOLDER_ID"
 
-          IMAGE="cr.yandex/$REGISTRY_NAME/app:${RELEASE_VERSION}_latest"
-          echo "Checking image: $IMAGE"
-
-          IMAGE_EXISTS=$(yc container image list --registry-name "$REGISTRY_NAME" --format json | jq -r \
-            --arg tag "${RELEASE_VERSION}_latest" \
-            '.[] | select(.tags[]? == $tag) | .name')
-
+      - name: Check if image exists in Yandex Container Registry
+        run: |
+          IMAGE_TAG="${RELEASE_VERSION}_latest"
+          echo "Looking for image tag: $IMAGE_TAG in registry $REGISTRY_NAME"
+          IMAGE_EXISTS=$(yc container image list --registry-name "$REGISTRY_NAME" --format json | jq -r --arg tag "$IMAGE_TAG" '.[] | select(.tags[]? == $tag) | .name')
           if [ -z "$IMAGE_EXISTS" ]; then
-            echo "Image with tag ${RELEASE_VERSION}_latest not found in Yandex Container Registry!"
+            echo "Image with tag $IMAGE_TAG not found in registry $REGISTRY_NAME!"
             exit 1
+          else
+            echo "Image found: $IMAGE_EXISTS"
           fi
 
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          REGISTRY_NAME: ${{ env.REGISTRY_NAME }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         with:
           host: ${{ secrets.PROD_SERVER_IP }}
           username: ${{ secrets.PROD_SERVER_USER }}
           key: ${{ secrets.PROD_SERVER_SSH_PRIVATE_KEY }}
           script: |
-            docker pull cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
+            IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
 
             docker stop shri-infra || true
             docker rm shri-infra || true
 
-            docker run -d --name shri-infra -p 3000:3000 cr.yandex/<ваш_идентификатор_реестра>/app:${{ github.event.inputs.release_version }}_latest
+            docker pull "$IMAGE"
+            docker run -d --name shri-infra -p 3000:3000 "$IMAGE"
