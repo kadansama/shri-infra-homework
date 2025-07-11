@@ -27,13 +27,12 @@ jobs:
           curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Verify yc CLI installation
+      - name: Verify yc CLI is installed
         run: |
-          ls -l $HOME/bin/yc
           which yc
           yc --version
 
-      - name: Authenticate yc CLI
+      - name: Authenticate with Yandex Cloud
         env:
           YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
@@ -42,13 +41,17 @@ jobs:
           yc config set cloud-id "$CLOUD_ID"
           yc config set folder-id "$FOLDER_ID"
 
-      - name: Check if image exists in Yandex Container Registry
+      - name: Check image exists in Yandex Container Registry
         run: |
-          IMAGE_TAG="${RELEASE_VERSION}_latest"
-          echo "Looking for image tag: $IMAGE_TAG in registry $REGISTRY_NAME"
-          IMAGE_EXISTS=$(yc container image list --registry-name "$REGISTRY_NAME" --format json | jq -r --arg tag "$IMAGE_TAG" '.[] | select(.tags[]? == $tag) | .name')
+          IMAGE="cr.yandex/$REGISTRY_NAME/app:${RELEASE_VERSION}_latest"
+          echo "Checking image: $IMAGE"
+
+          IMAGE_EXISTS=$(yc container image list --registry-name "$REGISTRY_NAME" --format json | jq -r \
+            --arg tag "${RELEASE_VERSION}_latest" \
+            '.[] | select(.tags[]? == $tag) | .name')
+
           if [ -z "$IMAGE_EXISTS" ]; then
-            echo "Image with tag $IMAGE_TAG not found in registry $REGISTRY_NAME!"
+            echo "Image with tag ${RELEASE_VERSION}_latest not found in Yandex Container Registry!"
             exit 1
           else
             echo "Image found: $IMAGE_EXISTS"
@@ -66,8 +69,9 @@ jobs:
           script: |
             IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
 
+            docker pull "$IMAGE"
+
             docker stop shri-infra || true
             docker rm shri-infra || true
 
-            docker pull "$IMAGE"
             docker run -d --name shri-infra -p 3000:3000 "$IMAGE"
