@@ -41,12 +41,12 @@ jobs:
           yc config set cloud-id $CLOUD_ID
           yc config set folder-id $FOLDER_ID
 
-      - name: Log in to Yandex Container Registry
-        run: |
-          yc container registry configure-docker
-
       - name: Check image exists
         run: |
+          # Получаем IAM-токен для проверки образа
+          YC_IAM_TOKEN=$(yc iam create-token)
+          echo $YC_IAM_TOKEN | docker login --username iam --password-stdin cr.yandex
+          
           IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
           echo "Checking if image exists: $IMAGE"
 
@@ -78,7 +78,10 @@ jobs:
             yc config set service-account-key key.json
             yc config set cloud-id b1gr908prd2uo9dahreb
             yc config set folder-id b1gre28ftdr7otqsp4c7
-            yc container registry configure-docker
+            
+            # Исправленная аутентификация Docker с IAM-токеном
+            YC_IAM_TOKEN=$(yc iam create-token)
+            echo "$YC_IAM_TOKEN" | sudo docker login --username iam --password-stdin cr.yandex
 
             IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
             echo "Deploying image: $IMAGE"
