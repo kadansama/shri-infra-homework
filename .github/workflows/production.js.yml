@@ -43,8 +43,7 @@ jobs:
 
       - name: Log in to Yandex Container Registry
         run: |
-          TOKEN=$(yc iam create-token)
-          echo $TOKEN | docker login -u oauth --password-stdin cr.yandex
+          yc container registry configure-docker
 
       - name: Check image exists
         run: |
@@ -63,28 +62,23 @@ jobs:
         env:
           REGISTRY_NAME: ${{ env.REGISTRY_NAME }}
           RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
-          CLOUD_ID: ${{ env.CLOUD_ID }}
-          FOLDER_ID: ${{ env.FOLDER_ID }}
         with:
           host: ${{ secrets.PROD_SERVER_IP }}
           username: ${{ secrets.PROD_SERVER_USER }}
           key: ${{ secrets.PROD_SERVER_SSH_PRIVATE_KEY }}
-          envs: REGISTRY_NAME,RELEASE_VERSION,YC_SA_KEY_JSON,CLOUD_ID,FOLDER_ID
+          envs: REGISTRY_NAME,RELEASE_VERSION
           script: |
             set -e
 
-            echo "$YC_SA_KEY_JSON" > key.json
+            echo '${{ secrets.YC_SA_KEY_JSON }}' > key.json
 
             curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
             export PATH="$HOME/yandex-cloud/bin:$PATH"
 
             yc config set service-account-key key.json
-            yc config set cloud-id $CLOUD_ID
-            yc config set folder-id $FOLDER_ID
-
-            TOKEN=$(yc iam create-token)
-            echo $TOKEN | sudo docker login -u oauth --password-stdin cr.yandex
+            yc config set cloud-id b1gr908prd2uo9dahreb
+            yc config set folder-id b1gre28ftdr7otqsp4c7
+            yc container registry configure-docker
 
             IMAGE="cr.yandex/${REGISTRY_NAME}/app:${RELEASE_VERSION}_latest"
             echo "Deploying image: $IMAGE"
